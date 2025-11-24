@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VectorCity V72 - Final Stable</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Leaflet -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
+    <!-- Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <!-- Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+
+    <style>
+        :root {
+            --primary: #2563eb;
+            --bg-app: #f8fafc;
+            --text-main: #0f172a;
+        }
+
+        body { font-family: 'Inter', sans-serif; background-color: var(--bg-app); color: var(--text-main); }
+        h1, h2, .font-display { font-family: 'Space Grotesk', sans-serif; }
+        
+        ::-webkit-scrollbar { width: 5px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        
+        .leaflet-control-attribution { display: none; }
+        
+        /* Viewfinder */
+        #viewfinder {
+            box-shadow: 0 0 0 9999px rgba(255, 255, 255, 0.4);
+            border: 2px solid var(--primary);
+            pointer-events: none;
+            z-index: 500;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        /* Inputs */
+        input[type=range] { -webkit-appearance: none; background: transparent; width: 100%; }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none; height: 14px; width: 14px; border-radius: 50%;
+            background: white; border: 2px solid var(--primary); margin-top: -5px; 
+            cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%; height: 4px; cursor: pointer; background: #e2e8f0; border-radius: 2px;
+        }
+
+        /* Custom Checkbox */
+        .custom-checkbox {
+            appearance: none; background-color: #fff; margin: 0;
+            font: inherit; color: currentColor; width: 1.15em; height: 1.15em;
+            border: 2px solid #cbd5e1; border-radius: 0.25em;
+            display: grid; place-content: center; cursor: pointer; transition: all 0.2s;
+        }
+        .custom-checkbox::before {
+            content: ""; width: 0.65em; height: 0.65em; transform: scale(0);
+            transition: 120ms transform ease-in-out;
+            box-shadow: inset 1em 1em white;
+            transform-origin: center;
+            clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
+        }
+        .custom-checkbox:checked { background-color: var(--primary); border-color: var(--primary); }
+        .custom-checkbox:checked::before { transform: scale(1); }
+
+        /* Color Picker Wrapper */
+        .color-dot {
+            width: 24px; height: 24px; border-radius: 50%; overflow: hidden; 
+            border: 1px solid #e2e8f0; cursor: pointer; position: relative;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+        }
+        .color-dot input[type="color"] {
+            position: absolute; top: -50%; left: -50%; width: 200%; height: 200%;
+            padding: 0; border: none; cursor: pointer; opacity: 0; z-index: 50; /* Needs high Z-index to catch click */
+        }
+        .color-preview { position: absolute; inset: 0; pointer-events: none; z-index: 5; }
+    </style>
+</head>
+<body class="h-screen w-screen overflow-hidden flex flex-col">
+
+    <!-- Header -->
+    <header class="h-14 bg-white border-b border-slate-100 flex items-center px-5 justify-between shrink-0 z-50">
+        <div class="flex items-center gap-3">
+            <div class="w-8 h-8 bg-slate-900 rounded-lg flex items-center justify-center text-white shadow-md">
+                <i data-lucide="layers" class="w-4 h-4"></i>
+            </div>
+            <div>
+                <h1 class="font-bold text-base tracking-tight text-slate-900 leading-none">VECTOR<span class="text-slate-400">CITY</span></h1>
+            </div>
+        </div>
+        
+        <div class="flex items-center gap-3">
+             <div id="status-badge" class="hidden items-center gap-2 px-2.5 py-1 bg-emerald-50 text-emerald-600 rounded-full border border-emerald-100 text-[10px] font-bold uppercase tracking-wide">
+                <div class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div>
+                Preview Active
+            </div>
+             <select id="api-selector" class="text-xs bg-slate-50 border-none rounded-md px-3 py-1.5 text-slate-500 font-medium hover:text-slate-800 cursor-pointer outline-none focus:ring-0">
+                <option value="https://overpass-api.de/api/interpreter">Overpass EU</option>
+            </select>
+        </div>
+    </header>
+
+    <div class="flex flex-1 overflow-hidden relative">
+        
+        <!-- Sidebar -->
+        <aside class="w-[400px] bg-white border-r border-slate-100 flex flex-col z-40 shadow-sm">
+            <div class="flex-1 overflow-y-auto p-6 space-y-8 custom-scroll">
+                
+                <!-- 1. Location -->
+                <section>
+                    <h2 class="text-xs font-bold text-slate-900 uppercase tracking-widest mb-4">1. Location</h2>
+                    <div class="space-y-3">
+                        <div class="relative group">
+                            <i data-lucide="search" class="absolute left-3 top-3 w-4 h-4 text-slate-400"></i>
+                            <input type="text" id="location-search" placeholder="Search city..." 
+                                class="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 pl-10 pr-3 text-sm font-medium focus:bg-white focus:border-blue-500 outline-none transition">
+                            <div id="search-results" class="absolute top-full left-0 right-0 bg-white border border-slate-100 rounded-xl mt-2 hidden z-50 max-h-60 overflow-y-auto shadow-xl p-1"></div>
+                        </div>
+                        <div class="relative">
+                            <select id="aspect-ratio" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-700 focus:border-blue-500 outline-none cursor-pointer appearance-none">
+                                <option value="1.414:1">A4 Landscape</option>
+                                <option value="1:1.414">A4 Portrait</option>
+                                <option value="1.5:1">Poster (2:3)</option>
+                                <option value="1.667:1">Postcard (3:5)</option>
+                                <option value="16:9" selected>16:9 Widescreen</option>
+                                <option value="1:1">1:1 Square</option>
+                            </select>
+                            <i data-lucide="chevron-down" class="absolute right-3 top-3 w-4 h-4 text-slate-400 pointer-events-none"></i>
+                        </div>
+                    </div>
+                </section>
+                
+                <!-- 2. Background Control (Simple) -->
+                <section>
+                    <h2 class="text-xs font-bold text-slate-900 uppercase tracking-widest mb-4">2.1 Canvas Color</h2>
+                    <div class="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                         <div class="flex items-center justify-between">
+                            <label class="text-sm font-medium">Background / Canvas Color</label>
+                            <div class="color-dot layer-color-wrapper" title="Background Color">
+                                <input type="color" id="bg-color-input" value="#ffffff">
+                                <div class="color-preview" id="bg-color-preview" style="background-color: #ffffff;"></div>
+                            </div>
+                        </div>
+                        <p class="text-[10px] text-slate-500 mt-2">The background is transparent on export. This color is for preview only.</p>
+                    </div>
+                </section>
+
+                <!-- 2. Layers -->
+                <section>
+                    <h2 class="text-xs font-bold text-slate-900 uppercase tracking-widest mb-4">2.2 Feature Layers</h2>
+                    <div class="space-y-4">
+                        <div id="layers-container" class="space-y-3"></div>
+                        
+                        <button id="btn-preview" class="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl shadow-md transition flex items-center justify-center gap-2 group">
+                            <i data-lucide="refresh-cw" class="w-4 h-4 group-hover:rotate-180 transition-transform"></i> 
+                            <span>GENERATE PREVIEW</span>
+                        </button>
+                    </div>
+                </section>
+
+                <!-- 3. Export -->
+                <section class="pb-6">
+                    <div class="flex items-center justify-between mb-4">
+                        <h2 class="text-xs font-bold text-slate-900 uppercase tracking-widest">3. Export</h2>
+                    </div>
+                    
+                    <!-- MM Width Input Only -->
+                    <div class="bg-slate-50 p-3 rounded-xl border border-slate-200 mb-4">
+                        <div class="flex justify-between items-center mb-2">
+                            <label class="text-[10px] font-bold text-slate-500 uppercase">Width (mm)</label>
+                            <span id="res-height-display" class="text-[10px] font-mono text-slate-400">Height: auto</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <input type="number" id="export-width-mm" value="210" min="50" max="1000" step="10"
+                                class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm font-bold text-slate-800 focus:border-blue-500 outline-none text-center">
+                            <span class="text-xs font-bold text-slate-400">mm</span>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-2">
+                        <button onclick="App.download('svg')" class="flex flex-col items-center justify-center p-3 bg-white border border-slate-200 hover:border-orange-400 hover:shadow-sm rounded-xl transition group">
+                            <i data-lucide="code-2" class="w-5 h-5 text-orange-500 mb-1.5"></i>
+                            <span class="text-xs font-bold text-slate-700">Full Map</span>
+                            <span class="text-[9px] text-slate-400">SVG</span>
+                        </button>
+                        <button onclick="App.download('png')" class="flex flex-col items-center justify-center p-3 bg-white border border-slate-200 hover:border-blue-400 hover:shadow-sm rounded-xl transition group">
+                            <i data-lucide="image" class="w-5 h-5 text-blue-500 mb-1.5"></i>
+                            <span class="text-xs font-bold text-slate-700">Image</span>
+                            <span class="text-[9px] text-slate-400">PNG (600 DPI)</span>
+                        </button>
+                    </div>
+                </section>
+
+            </div>
+        </aside>
+
+        <!-- Map Area -->
+        <div class="flex-1 relative bg-slate-100">
+            <div id="map" class="w-full h-full z-0"></div>
+            <div id="viewfinder"></div>
+            
+            <!-- Loader -->
+            <div id="loader" class="absolute inset-0 bg-white/90 backdrop-blur-sm z-[1000] hidden flex-col items-center justify-center">
+                <div class="animate-spin text-slate-900 mb-4"><i data-lucide="loader-2" width="48" height="48"></i></div>
+                <div class="text-slate-800 text-sm font-bold uppercase tracking-widest" id="loading-text">Retrieving Map Data...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Template for a Layer Control -->
+    <template id="layer-control-template">
+        <div class="layer-item p-3 border border-slate-200 rounded-lg hover:border-blue-400 transition-colors bg-white">
+            <div class="flex items-center justify-between mb-2">
+                <div class="flex items-center gap-3">
+                    <input type="checkbox" class="layer-toggle custom-checkbox">
+                    <span class="text-sm font-bold text-slate-800 layer-name">Layer Name</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <div class="color-dot layer-color-wrapper" title="Color">
+                        <input type="color" class="layer-color-input">
+                        <div class="color-preview layer-color-preview" style="background-color: #000;"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Width Control (Only visible for Line types) -->
+            <div class="width-control pl-8 hidden mt-2">
+                <div class="flex items-center gap-3">
+                    <i data-lucide="pen-tool" class="w-3 h-3 text-slate-300"></i>
+                    <input type="range" class="layer-width flex-1" min="0.1" max="20" step="0.1">
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <script>
+        // --- Configuration & State ---
+        
+        let layerConfig = {
+            // 0. Background (Canvas) - No query
+            background: { name: "Canvas Color", type: "area", active: true, color: "#ffffff", isBackground: true },
+
+            // 1. Water (Lakes / Closed Areas) - FILL ONLY
+            lakes: { 
+                name: "Water (Lakes/Areas)", 
+                type: "area", 
+                active: true, 
+                color: "#60a5fa", 
+                query: 'way["natural"="water"]; relation["natural"="water"]; way["waterway"="riverbank"]; relation["waterway"="riverbank"]; way["waterway"="dock"]; relation["waterway"="dock"]; way["landuse"="reservoir"]; relation["landuse"="reservoir"]; way["landuse"="basin"];' 
+            },
+            
+            // 2. Water (Rivers / Lines / Coastline) - STROKE ONLY
+            rivers: { 
+                name: "Water (Rivers/Coast)", 
+                type: "line", 
+                active: true, 
+                color: "#60a5fa", 
+                width: 2.0, 
+                query: 'way["waterway"="river"]; way["waterway"="stream"]; way["waterway"="canal"]; way["waterway"="drain"]; way["natural"="coastline"];' 
+            },
+
+            // 3. Parks
+            parks: { name: "Parks / Forest", type: "area", active: true, color: "#bbf7d0", query: 'way["leisure"="park"]; relation["leisure"="park"]; way["landuse"="forest"]; way["natural"="wood"];' },
+            
+            // 4. Buildings
+            buildings: { name: "Buildings", type: "area", active: true, color: "#0f172a", query: 'way["building"]; relation["building"];' },
+            
+            // 5. Lines
+            highways_major: { name: "Highways", type: "line", active: true, color: "#0f172a", width: 6.0, query: 'way["highway"~"motorway|trunk|primary|secondary"];' },
+            highways_minor: { name: "Streets", type: "line", active: true, color: "#334155", width: 3.0, query: 'way["highway"~"tertiary|residential|unclassified|service"];' },
+            rail: { name: "Rail", type: "line", active: true, color: "#334155", width: 1.5, query: 'way["railway"="rail"];' },
+            paths: { name: "Paths", type: "line", active: false, color: "#64748b", width: 1.0, query: 'way["highway"~"footway|cycleway|path|pedestrian"];' },
+            aeroway: { name: "Airports", type: "line", active: false, color: "#e2e8f0", width: 4.0, query: 'way["aeroway"~"runway|taxiway"]; relation["aeroway"~"runway|taxiway"];' },
+            labels: { name: "Labels", type: "line", active: false, color: "#0f172a", width: 10.0, query: 'node["place"~"city|town|suburb|neighbourhood"];' } 
+        };
+
+        // --- Main App Object ---
+        const App = {
+            state: { data: null, bounds: null, preview: false },
+            map: null,
+            previewOverlayLayer: null,
+            
+            init: function() {
+                const vf = document.getElementById('viewfinder');
+                const mapCont = document.getElementById('map');
+                if(!vf || !mapCont) return;
+
+                // Map Initialization
+                this.map = L.map('map', { zoomControl: false, attributionControl: false, zoomSnap: 0.5 }).setView([40.758, -73.985], 15); // Manhattan
+                L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { maxZoom: 20, subdomains: 'abcd' }).addTo(this.map);
+                L.control.zoom({ position: 'topright' }).addTo(this.map);
+
+                // Event Listeners (UI/UX)
+                document.getElementById('aspect-ratio').addEventListener('change', () => {
+                    this.updateViewfinder();
+                    this.updateResolutionLabel();
+                    if(this.state.preview) this.clearPreview();
+                });
+                document.getElementById('export-width-mm').addEventListener('input', () => this.updateResolutionLabel());
+                window.addEventListener('resize', () => this.updateViewfinder());
+                
+                // Clear preview on map interaction
+                this.map.on('movestart', () => { if(this.state.preview) this.clearPreview(); });
+                this.map.on('zoomstart', () => { if(this.state.preview) this.clearPreview(); });
+
+                document.getElementById('btn-preview').addEventListener('click', () => this.generatePreview());
+                document.getElementById('bg-color-input').addEventListener('input', e => {
+                    layerConfig.background.color = e.target.value;
+                    document.getElementById('bg-color-preview').style.backgroundColor = e.target.value;
+                    if(this.state.preview) this.setUpdateNeeded();
+                });
+                
+                this.initSearch();
+                this.renderLayerControls();
+                this.updateViewfinder();
+                this.updateResolutionLabel();
+                lucide.createIcons();
+            },
+
+            updateViewfinder: function() {
+                const container = document.getElementById('map');
+                const viewfinder = document.getElementById('viewfinder');
+                const wCont = container.clientWidth;
+                const hCont = container.clientHeight;
+                const margin = 80;
+
+                const val = document.getElementById('aspect-ratio').value;
+                let ratio = 16/9;
+                if(val.includes(':')) { const p = val.split(':'); ratio = parseFloat(p[0])/parseFloat(p[1]); }
+
+                let w = wCont - margin;
+                let h = w / ratio;
+                if (h > hCont - margin) { h = hCont - margin; w = h * ratio; }
+
+                viewfinder.style.width = `${Math.round(w)}px`;
+                viewfinder.style.height = `${Math.round(h)}px`;
+                viewfinder.style.left = `${(wCont - w) / 2}px`; viewfinder.style.top = `${(hCont - h) / 2}px`;
+                viewfinder.style.position = 'absolute'; 
+            },
+
+            updateResolutionLabel: function() {
+                const widthInput = document.getElementById('export-width-mm');
+                const label = document.getElementById('res-height-display');
+                const val = document.getElementById('aspect-ratio').value;
+                let ratio = 16/9;
+                if(val.includes(':')) { const p = val.split(':'); ratio = parseFloat(p[0])/parseFloat(p[1]); }
+                const w = parseFloat(widthInput.value) || 210;
+                const h = (w / ratio).toFixed(1);
+                label.textContent = `Height: ${h}mm`;
+            },
+
+            getBounds: function() {
+                const viewfinder = document.getElementById('viewfinder');
+                const container = document.getElementById('map');
+                const rect = viewfinder.getBoundingClientRect();
+                const mapRect = container.getBoundingClientRect();
+                const left = rect.left - mapRect.left;
+                const top = rect.top - mapRect.top; 
+                const nw = this.map.containerPointToLatLng([left, top]);
+                const se = this.map.containerPointToLatLng([left + rect.width, top + rect.height]);
+                return { south: se.lat, west: nw.lng, north: nw.lat, east: se.lng, widthPx: rect.width, heightPx: rect.height };
+            },
+
+            renderLayerControls: function() {
+                const container = document.getElementById('layers-container');
+                const template = document.getElementById('layer-control-template');
+                container.innerHTML = '';
+                
+                const layerKeys = Object.keys(layerConfig).filter(k => !layerConfig[k].isBackground);
+                const self = this;
+
+                layerKeys.forEach(key => {
+                    const conf = layerConfig[key];
+                    const clone = template.content.cloneNode(true);
+                    clone.querySelector('.layer-name').textContent = conf.name;
+                    
+                    const toggle = clone.querySelector('.layer-toggle');
+                    toggle.checked = conf.active;
+                    toggle.addEventListener('change', e => {
+                        conf.active = e.target.checked;
+                        if(self.state.preview) self.setUpdateNeeded();
+                    });
+
+                    const colorInput = clone.querySelector('.layer-color-input');
+                    const colorPreview = clone.querySelector('.layer-color-preview');
+                    colorInput.value = conf.color; 
+                    colorPreview.style.backgroundColor = conf.color;
+                    colorInput.addEventListener('input', e => {
+                        conf.color = e.target.value;
+                        colorPreview.style.backgroundColor = e.target.value;
+                        if(self.state.preview) self.setUpdateNeeded();
+                    });
+
+                    // Show width control only for line types
+                    if (conf.type === 'line' || key === 'labels') {
+                        const wCtrl = clone.querySelector('.width-control');
+                        wCtrl.classList.remove('hidden');
+                        const wInput = wCtrl.querySelector('.layer-width');
+                        wInput.value = conf.width;
+                        wInput.addEventListener('input', e => {
+                            conf.width = parseFloat(e.target.value);
+                            if(self.state.preview) self.setUpdateNeeded();
+                        });
+                    }
+                    
+                    container.appendChild(clone);
+                });
+            },
+
+            setUpdateNeeded: function() {
+                 const btn = document.getElementById('btn-preview');
+                 btn.innerHTML = '<i data-lucide="refresh-cw" class="w-4 h-4"></i> <span>UPDATE PREVIEW</span>';
+                 btn.classList.replace('bg-slate-900', 'bg-orange-500');
+                 btn.classList.replace('hover:bg-slate-800', 'hover:bg-orange-600');
+                 lucide.createIcons();
+            },
+
+            clearPreview: function() {
+                if(this.previewOverlayLayer) { this.map.removeLayer(this.previewOverlayLayer); this.previewOverlayLayer = null; }
+                this.state.data = null;
+                this.state.preview = false;
+                document.getElementById('status-badge').classList.add('hidden');
+                const btn = document.getElementById('btn-preview');
+                btn.innerHTML = '<i data-lucide="refresh-cw" class="w-4 h-4"></i> <span>GENERATE PREVIEW</span>';
+                btn.classList.remove('bg-orange-500', 'hover:bg-orange-600', 'bg-emerald-600', 'hover:bg-emerald-700');
+                btn.classList.add('bg-slate-900', 'hover:bg-slate-800');
+                lucide.createIcons();
+            },
+
+            fetchData: async function() {
+                const loader = document.getElementById('loader');
+                loader.classList.remove('hidden'); loader.classList.add('flex');
+                const b = this.getBounds();
+                this.state.bounds = b;
+                const api = document.getElementById('api-selector').value;
+                const bbox = `${b.south},${b.west},${b.north},${b.east}`;
+                
+                let q = `[out:json][timeout:90];(`;
+                Object.values(layerConfig).forEach(l => {
+                    if(l.active && l.query) { 
+                        const parts = l.query.split(';');
+                        parts.forEach(p => { if(p.trim().length > 0) q += `${p.trim()}(${bbox});`; });
+                    }
+                });
+                q += `); out geom;`;
+
+                try {
+                    const res = await fetch(api, { method: "POST", body: "data=" + encodeURIComponent(q) });
+                    if(!res.ok) throw new Error("Overpass API Error");
+                    this.state.data = await res.json();
+                    loader.classList.add('hidden');
+                    return true;
+                } catch(e) {
+                    alert("Fetch Error: " + e.message);
+                    loader.classList.add('hidden');
+                    return false;
+                }
+            },
+
+            generatePreview: async function() {
+                const ok = await this.fetchData();
+                if(!ok) return;
+                this.state.preview = true;
+                document.getElementById('status-badge').classList.remove('hidden');
+                document.getElementById('status-badge').classList.add('flex');
+                this.refreshOverlay();
+                const btn = document.getElementById('btn-preview');
+                btn.innerHTML = '<i data-lucide="check" class="w-4 h-4"></i> <span>PREVIEW ACTIVE</span>';
+                btn.classList.remove('bg-orange-500', 'hover:bg-orange-600');
+                btn.classList.add('bg-emerald-600', 'hover:bg-emerald-700');
+                lucide.createIcons();
+            },
+
+            refreshOverlay: function() {
+                if(!this.state.data) return;
+                const b = this.state.bounds;
+                const svg = this.generateSVGString(this.state.data, b.widthPx, b.heightPx, true);
+                const url = URL.createObjectURL(new Blob([svg], {type: 'image/svg+xml'}));
+                if(this.previewOverlayLayer) this.map.removeLayer(this.previewOverlayLayer);
+                this.previewOverlayLayer = L.imageOverlay(url, [[b.south, b.west], [b.north, b.east]], { opacity: 1.0, interactive: false, zIndex: 999 }).addTo(this.map);
+            },
+
+            generateSVGString: function(data, w, h, isPreview, filterLayer = null) {
+                // Pixel-Größe des Viewfinders als Basis
+                const width = w; 
+                const height = h;
+                
+                // Berechnung der Exportgröße in Pixeln basierend auf Millimeter-Input
+                const mmWidth = parseFloat(document.getElementById('export-width-mm').value) || 210;
+                const val = document.getElementById('aspect-ratio').value;
+                let ratio = 16/9;
+                if(val.includes(':')) { const p = val.split(':'); ratio = parseFloat(p[0])/parseFloat(p[1]); }
+                const exportWidthPx = width; // Viewfinder pixel width
+                const exportHeightPx = height; // Viewfinder pixel height
+
+                // Projektionslogik
+                const b = this.state.bounds;
+                const d2r = Math.PI/180;
+                const yRad = l => Math.log(Math.tan(Math.PI/4 + l*d2r/2));
+                const minX = b.west*d2r, minY = yRad(b.south), maxX = b.east*d2r, maxY = yRad(b.north);
+                const proj = (lat, lon) => ({ x: ((lon*d2r) - minX) / (maxX - minX) * exportWidthPx, y: exportHeightPx - ((yRad(lat) - minY) / (maxY - minY) * exportHeightPx) });
+
+                // SVG Start
+                let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${exportWidthPx} ${exportHeightPx}" width="${mmWidth}mm" height="${(mmWidth/ratio).toFixed(1)}mm" fill-rule="evenodd">`;
+                svg += `<defs><clipPath id="map-clip"><rect x="0" y="0" width="${exportWidthPx}" height="${exportHeightPx}" /></clipPath></defs>`;
+                
+                // Background (nur im Preview)
+                let bgConf = layerConfig.background;
+                let bgCol = (bgConf.active && isPreview) ? bgConf.color : "none";
+                svg += `<rect width="100%" height="100%" fill="${bgCol}"/>`;
+                
+                // HIER WIRD DER BESCHNITT AKTIVIERT
+                svg += `<g clip-path="url(#map-clip)">`;
+
+                const buckets = {}; 
+                Object.keys(layerConfig).forEach(k => buckets[k] = []);
+                data.elements.forEach(el => {
+                    if(!el.tags) return;
+                    
+                    // Priority 1: Water (STRICT SEPARATION)
+                    if(el.tags.natural==='water'||el.tags.waterway==='riverbank'||el.tags.waterway==='dock'||el.tags.landuse==='reservoir'||el.tags.landuse==='basin') {
+                         buckets.lakes.push(el); return;
+                    }
+                    if(el.tags.waterway && ['river','stream','canal','drain','ditch'].includes(el.tags.waterway) || el.tags.natural==='coastline') {
+                        buckets.rivers.push(el); return;
+                    }
+
+                    // Priority 2: Parks
+                    if(el.tags.leisure==='park'||el.tags.landuse==='forest'||el.tags.natural==='wood') { buckets.parks.push(el); return; }
+
+                    // Priority 3: Buildings & Infrastructure
+                    if(el.tags.building) { buckets.buildings.push(el); return; }
+                    if(el.tags.highway) {
+                        if(['motorway','trunk','primary','secondary'].some(v=>el.tags.highway.includes(v))) { buckets.highways_major.push(el); return; }
+                        else if(['footway','cycleway','path','pedestrian'].some(x => el.tags.highway.includes(x))) { buckets.paths.push(el); return; }
+                        else { buckets.highways_minor.push(el); return; }
+                    }
+                    if(el.tags.railway && el.tags.railway==='rail') { buckets.rail.push(el); return; }
+                    if(el.tags.aeroway && ['runway','taxiway'].some(x => el.tags.aeroway.includes(x))) { buckets.aeroway.push(el); return; }
+                    if(el.tags.place) { buckets.labels.push(el); return; }
+                });
+
+                // Order: Background -> Parks/Lakes -> Rivers -> Structures (Top)
+                const drawOrder = ['parks', 'lakes', 'aeroway', 'rail', 'rivers', 'paths', 'highways_minor', 'highways_major', 'buildings', 'labels'];
+
+                drawOrder.forEach(k => {
+                    if(filterLayer && k !== filterLayer) return; 
+                    const c = layerConfig[k];
+                    if(c.isBackground) return;
+                    if(!c.active) return;
+                    
+                    if(k === 'labels') {
+                         const fontSize = c.width * (width/1500) * 10;
+                         svg += `<g id="${k}" font-family="sans-serif" font-size="${fontSize}px" fill="${c.color}">`;
+                         buckets[k].forEach(el => {
+                             const p = proj(el.lat, el.lon);
+                             svg += `<text x="${p.x}" y="${p.y}" text-anchor="middle">${el.tags.name || ''}</text>`;
+                         });
+                         svg += `</g>`;
+                         return;
+                    }
+
+                    let gStroke = "none"; let gStrokeW = 0; let gFill = "none";
+
+                    if (c.type === 'area') {
+                        gFill = c.color;
+                        gStroke = "none"; 
+                    } else { // type === 'line'
+                        gStroke = c.color;
+                        gStrokeW = c.width * (width / 1500);
+                        gFill = "none";
+                    }
+                    
+                    svg += `<g id="${k}" fill="${gFill}" stroke="${gStroke}" stroke-width="${gStrokeW}" stroke-linecap="round" stroke-linejoin="round">`;
+                    
+                    buckets[k].forEach(el => {
+                        let pathData = "";
+                        // Simple Way Handling
+                        if (el.geometry) {
+                            let d = "M ";
+                            el.geometry.forEach((pt) => { const p = proj(pt.lat, pt.lon); d += `${p.x.toFixed(1)},${p.y.toFixed(1)} `; });
+                            if(c.type === 'area') d += "Z"; // Close area
+                            svg += `<path d="${d.trim()}" />`;
+                        }
+                        // Relation Handling (Multipolygon)
+                        else if(el.type === 'relation' && el.members) {
+                             el.members.forEach(m => {
+                                 if(m.geometry) {
+                                     let d = "M ";
+                                     m.geometry.forEach((pt) => { const p = proj(pt.lat, pt.lon); d += `${p.x.toFixed(1)},${p.y.toFixed(1)} `; });
+                                     if(c.type === 'area') d += "Z "; 
+                                     pathData += d;
+                                 }
+                             });
+                             if(pathData) svg += `<path d="${pathData}" />`;
+                        }
+                    });
+                    svg += `</g>`;
+                });
+                svg += `</g></svg>`;
+                return svg;
+            },
+
+            download: async function(fmt) {
+                if(!this.state.data) { alert("Please generate a preview first."); return; }
+                const b = this.state.bounds;
+                const widthInput = parseFloat(document.getElementById('export-width-mm').value) || 210;
+                const val = document.getElementById('aspect-ratio').value;
+                let ratio = 16/9;
+                if(val.includes(':')) { const p = val.split(':'); ratio = parseFloat(p[0])/parseFloat(p[1]); }
+                
+                // Berechne die Exportgröße in Pixel (600 DPI ~ 23.62 px/mm)
+                const DPI_FACTOR = 23.62;
+                const wPx = Math.round(widthInput * DPI_FACTOR); 
+                const hPx = Math.round(wPx / ratio);
+                
+                // Generiere SVG mit den korrekten Pixelmaßen für die viewBox
+                const svg = this.generateSVGString(this.state.data, wPx, hPx, false);
+                
+                if(fmt === 'svg') {
+                    this.downloadFile(new Blob([svg], {type:'image/svg+xml'}), 'VectorCity_Map.svg');
+                } else if(fmt === 'png') {
+                    const img = new Image();
+                    // Base64 Encoding
+                    const url = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svg)));
+                    
+                    img.onload = () => {
+                        const canvas = document.createElement('canvas');
+                        canvas.width = wPx; canvas.height = hPx;
+                        const ctx = canvas.getContext('2d');
+                        // Zeichne das SVG in das Canvas
+                        ctx.drawImage(img, 0, 0, wPx, hPx); // Skaliert das SVG auf die Canvas-Größe
+                        
+                        // Download PNG
+                        this.downloadFile(null, 'VectorCity_Map.png', canvas.toDataURL('image/png'));
+                    };
+                    img.src = url;
+                } else if(fmt === 'zip') {
+                     if (typeof JSZip === 'undefined') { alert("JSZip library not loaded."); return; }
+                     const zip = new JSZip();
+                     const folder = zip.folder("Layers");
+                     Object.keys(layerConfig).forEach(key => {
+                        if(!layerConfig[key].active || layerConfig[key].isBackground) return;
+                        // HIER MUSS DER LAYER SVG AUCH MIT DEN EXPORT PIXELN GENERIERT WERDEN
+                        const layerSvg = this.generateSVGString(this.state.data, wPx, hPx, false, key); 
+                        folder.file(`${layerConfig[key].name}.svg`, layerSvg);
+                     });
+                     zip.generateAsync({type:"blob"}).then((content) => this.downloadFile(content, "VectorCity_Layers.zip"));
+                }
+            },
+
+            downloadFile: function(blob, name, url) {
+                const a = document.createElement('a');
+                a.href = url || URL.createObjectURL(blob);
+                a.download = name;
+                document.body.appendChild(a); a.click(); document.body.removeChild(a);
+            },
+
+            initSearch: function() {
+                const inp = document.getElementById('location-search');
+                const resDiv = document.getElementById('search-results');
+                let t;
+                inp.addEventListener('input', e => {
+                    clearTimeout(t);
+                    t = setTimeout(async () => {
+                        const q = e.target.value;
+                        if(q.length < 3) { resDiv.classList.add('hidden'); return; }
+                        try {
+                            const req = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}`);
+                            const data = await req.json();
+                            resDiv.innerHTML = '';
+                            data.slice(0,5).forEach(i => {
+                                const d = document.createElement('div');
+                                d.className = "p-2 hover:bg-slate-50 cursor-pointer text-xs border-b last:border-0";
+                                d.textContent = i.display_name;
+                                d.onclick = () => {
+                                    this.map.setView([i.lat, i.lon], 15);
+                                    resDiv.classList.add('hidden');
+                                };
+                                resDiv.appendChild(d);
+                            });
+                            resDiv.classList.remove('hidden');
+                        } catch(err){}
+                    }, 500);
+                });
+            }
+        };
+
+        window.addEventListener('load', () => App.init());
+    </script>
+</body>
+</html>
