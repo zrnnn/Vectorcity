@@ -38,7 +38,7 @@ VectorCity is built with web technologies, making it accessible and easy to unde
 * **Technologies:** HTML, CSS, JavaScript (using Leaflet.js for mapping).
 * **Data Source:** OpenStreetMap via Overpass API.
 
-As this project is under the GPL, contributions are highly encouraged!
+Contributions are welcome!
 1.  Fork the repository.
 2.  Create your feature branch (`git checkout -b feature/AmazingFeature`).
 3.  Commit your changes (`git commit -m 'Add some AmazingFeature'`).
@@ -52,7 +52,7 @@ Please open an issue in this repository! Your feedback is incredibly valuable in
 
 ## 📄 License
 
-This project is licensed under the **GNU General Public License v3.0 (GPL-3.0)**.
+This project is licensed under the **MIT License**.
 
 ---
 
