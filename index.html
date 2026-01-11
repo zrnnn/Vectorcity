@@ -1,631 +1,556 @@
-<!DOCTYPE html>
-<html lang="de">
+<!doctype html>
+<html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>VectorCity Topo Studio</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <title>Vectorcity 32.0 — Solid Relief Edition</title>
 
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- Libs -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <script src="https://unpkg.com/lucide@latest"></script>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/earcut@2.2.4/dist/earcut.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
+  <script src="https://unpkg.com/osmtogeojson@3.0.0-beta.5/osmtogeojson.js"></script>
 
   <style>
     :root {
-      --primary: #2563eb;
-      --bg-app: #f8fafc;
-      --text-main: #0f172a;
+      --color-bg: #F2F2F7;
+      --color-panel: rgba(255, 255, 255, 0.98);
+      --color-primary: #007AFF;
+      --color-primary-hover: #0056B3;
+      --color-text: #1C1C1E;
+      --color-text-sec: #8E8E93;
+      --color-border: rgba(60, 60, 67, 0.12);
+      --radius-ios: 22px;
+      --sidebar-w: 400px;
+      --blur: blur(40px);
     }
 
+    * { box-sizing: border-box; outline: none; -webkit-tap-highlight-color: transparent; }
+    
     body {
-      font-family: 'Inter', sans-serif;
-      background-color: var(--bg-app);
-      color: var(--text-main);
+      margin: 0; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+      background: var(--color-bg); color: var(--color-text); height: 100vh; overflow: hidden; display: flex;
     }
 
-    h1, h2, .font-display { font-family: 'Space Grotesk', sans-serif; }
+    /* MAP AREA */
+    .viewport { position: relative; flex: 1; height: 100%; }
+    #map { width: 100%; height: 100%; z-index: 0; background: #D1D1D6; }
 
-    ::-webkit-scrollbar { width: 6px; }
-    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
-
-    .leaflet-control-attribution { display: none; }
-
-    #viewfinder {
-      position: absolute;
-      box-shadow: 0 0 0 9999px rgba(248, 250, 252, 0.45);
-      border: 2px solid var(--primary);
-      pointer-events: none;
-      z-index: 500;
-      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    /* SIDEBAR */
+    .sidebar {
+      position: absolute; top: 16px; left: 16px; bottom: 16px; width: var(--sidebar-w);
+      z-index: 1000; background: var(--color-panel); backdrop-filter: var(--blur);
+      -webkit-backdrop-filter: var(--blur); border: 1px solid rgba(255,255,255,0.6);
+      border-radius: var(--radius-ios); box-shadow: 0 15px 45px rgba(0,0,0,0.12);
+      display: flex; flex-direction: column; overflow: hidden;
     }
 
-    #viewfinder.circle {
-      border-radius: 9999px;
+    .sidebar-header {
+      padding: 24px; border-bottom: 1px solid var(--color-border);
+      display: flex; align-items: center; justify-content: space-between;
+      background: rgba(255,255,255,0.4);
+    }
+    .brand { font-weight: 800; font-size: 24px; letter-spacing: -0.8px; color: var(--color-text); text-decoration: none; }
+    .scroll-content { flex: 1; overflow-y: auto; padding: 24px; }
+
+    /* UI ELEMENTS */
+    .group { margin-bottom: 28px; }
+    label { font-size: 11px; font-weight: 700; color: var(--color-text-sec); margin-bottom: 8px; display: block; text-transform: uppercase; letter-spacing: 0.5px; }
+    
+    input, select {
+      width: 100%; padding: 12px 14px; border-radius: 12px;
+      border: 1px solid transparent; background: rgba(118, 118, 128, 0.1);
+      font-size: 15px; color: var(--color-text); transition: 0.2s;
+    }
+    input:focus, select:focus { background: #fff; border-color: var(--color-primary); box-shadow: 0 0 0 3px rgba(0,122,255,0.1); }
+    .input-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+    /* LAYER LIST */
+    .layer-list { display: flex; flex-direction: column; gap: 8px; }
+    .layer-item {
+      background: rgba(255,255,255,0.5); border-radius: 16px;
+      border: 1px solid rgba(0,0,0,0.04); transition: 0.2s; overflow: hidden;
+    }
+    .layer-item.open { background: white; border-color: rgba(0,122,255,0.2); }
+    .layer-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; cursor: pointer; }
+    .layer-info { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 15px; }
+    .chevron { transition: transform 0.3s; width: 14px; height: 14px; opacity: 0.4; }
+    .layer-item.open .chevron { transform: rotate(180deg); opacity: 1; color: var(--color-primary); }
+    .layer-body { display: none; padding: 0 18px 18px 18px; background: white; }
+
+    /* CONTROLS */
+    .cust-row { display: flex; align-items: center; justify-content: space-between; margin-top: 12px; gap: 10px; }
+    .color-dot { width: 32px; height: 32px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 2px 6px rgba(0,0,0,0.1); position: relative; overflow: hidden; cursor: pointer; }
+    .color-dot input { position: absolute; top: -10px; left: -10px; width: 50px; height: 50px; opacity: 0; cursor: pointer; }
+    input[type=range] { flex: 1; height: 4px; border-radius: 2px; background: #d1d1d6; -webkit-appearance: none; }
+    input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: 0 2px 6px rgba(0,0,0,0.15); border: 0.5px solid #eee; }
+
+    .ios-switch {
+      position: relative; width: 44px; height: 26px;
+      background: #E9E9EA; border-radius: 20px; cursor: pointer; transition: 0.3s;
+    }
+    .ios-switch::after {
+      content: ''; position: absolute; top: 2px; left: 2px;
+      width: 22px; height: 22px; background: #fff; border-radius: 50%;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.15); transition: 0.3s cubic-bezier(0.3, 1.5, 0.7, 1);
+    }
+    .ios-switch.on { background: #34C759; }
+    .ios-switch.on::after { transform: translateX(18px); }
+
+    /* BUTTONS */
+    .btn-main {
+      width: 100%; padding: 18px; border-radius: 16px; border: none;
+      font-weight: 700; font-size: 17px; cursor: pointer; transition: 0.2s;
+      background: var(--color-primary); color: #fff; box-shadow: 0 10px 20px rgba(0,122,255,0.25);
+    }
+    .btn-main:hover { transform: translateY(-2px); background: var(--color-primary-hover); }
+
+    /* VIEWFINDER Overlay */
+    .viewfinder-wrapper { position: absolute; inset: 0; pointer-events: none; z-index: 500; }
+    .vf-mask { fill: rgba(0,0,0,0.35); }
+    .vf-stroke { fill: none; stroke: #fff; stroke-width: 2.5; filter: drop-shadow(0 0 5px rgba(0,0,0,0.4)); }
+    .vf-badge {
+      position: absolute; 
+      transform: translate(-50%, -50%);
+      background: var(--color-primary); 
+      color: #fff; padding: 8px 16px;
+      border-radius: 20px; font-size: 12px; font-weight: 700; white-space: nowrap;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+      pointer-events: auto;
     }
 
-    #preview-canvas {
-      background: #fff;
-      border-radius: 16px;
-      box-shadow: 0 20px 40px rgba(15, 23, 42, 0.12);
+    /* MODAL */
+    .modal-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.4); backdrop-filter: blur(10px);
+      z-index: 2000; display: none; align-items: center; justify-content: center; opacity: 0; transition: 0.3s;
     }
+    .modal-overlay.open { display: flex; opacity: 1; }
+    .modal-card {
+      width: 95vw; height: 92vh; background: #fff; border-radius: 32px;
+      display: flex; overflow: hidden; box-shadow: 0 40px 100px rgba(0,0,0,0.3);
+    }
+    .preview-stage { flex: 1; background: #F2F2F7; display: flex; align-items: center; justify-content: center; padding: 40px; overflow: auto; }
+    .export-side { width: 400px; background: #fff; border-left: 1px solid var(--color-border); padding: 40px; display: flex; flex-direction: column; gap: 30px; overflow-y: auto; }
 
-    input[type=range] { -webkit-appearance: none; background: transparent; width: 100%; }
-    input[type=range]::-webkit-slider-thumb {
-      -webkit-appearance: none; height: 14px; width: 14px; border-radius: 50%;
-      background: white; border: 2px solid var(--primary); margin-top: -5px;
-      cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    /* LOADER */
+    .loader {
+      position: fixed; top: 30px; left: 50%; transform: translateX(-50%);
+      background: #fff; padding: 14px 28px; border-radius: 40px; z-index: 9999; display: none; align-items: center; gap: 12px;
+      font-weight: 700; box-shadow: 0 10px 30px rgba(0,0,0,0.15); border: 1px solid #fff;
     }
-    input[type=range]::-webkit-slider-runnable-track {
-      width: 100%; height: 4px; cursor: pointer; background: #e2e8f0; border-radius: 2px;
-    }
+    .loader.active { display: flex; }
+    .spinner { width: 22px; height: 22px; border: 3px solid #E5E5EA; border-top-color: var(--color-primary); border-radius: 50%; animation: spin 0.8s infinite linear; }
+    @keyframes spin { to { transform: rotate(360deg); } }
   </style>
 </head>
-<body class="h-screen w-screen overflow-hidden flex flex-col">
-  <header class="h-14 bg-white border-b border-slate-100 flex items-center px-6 justify-between shrink-0 z-50">
-    <div class="flex items-center gap-3">
-      <div class="w-8 h-8 bg-slate-900 rounded-lg flex items-center justify-center text-white shadow-md">
-        <i data-lucide="layers" class="w-4 h-4"></i>
-      </div>
-      <div>
-        <h1 class="font-bold text-base tracking-tight text-slate-900 leading-none">VECTOR<span class="text-slate-400">CITY</span> TOPO</h1>
-        <p class="text-[10px] text-slate-500">Interaktive Höhendaten für Print & Laser</p>
+<body>
+
+<div id="loader" class="loader"><div class="spinner"></div><span id="loaderText">Loading...</span></div>
+
+<div class="sidebar">
+  <div class="sidebar-header">
+    <a href="#" class="brand">Vectorcity 32.0</a>
+  </div>
+  <div class="scroll-content">
+    <div class="group">
+      <label>Location Search</label>
+      <input type="text" id="searchInp" placeholder="New York, Berlin..." autocomplete="off">
+    </div>
+
+    <div class="group">
+      <label>Format & Dimension</label>
+      <select id="shapeSel" style="margin-bottom:12px;">
+        <option value="rect">Rectangle</option>
+        <option value="sq">Square</option>
+        <option value="circle">Circle</option>
+      </select>
+      <div class="input-grid">
+        <div><label>Width (mm)</label><input type="number" id="dimW" value="200"></div>
+        <div><label>Height (mm)</label><input type="number" id="dimH" value="140"></div>
       </div>
     </div>
-    <div class="flex items-center gap-3">
-      <button id="back-to-map" class="hidden items-center gap-2 px-3 py-1.5 rounded-full bg-slate-900 text-white text-xs font-semibold">
-        <i data-lucide="arrow-left" class="w-3 h-3"></i>
-        Zurück zur Karte
-      </button>
-      <div class="text-[10px] uppercase tracking-[0.3em] font-semibold text-slate-400">Beta</div>
+
+    <div class="group">
+      <label>Layer & Design</label>
+      <div id="layerList" class="layer-list"></div>
     </div>
-  </header>
 
-  <main class="flex-1 overflow-hidden">
-    <div id="builder" class="flex h-full">
-      <aside class="w-[380px] bg-white border-r border-slate-100 flex flex-col z-40 shadow-sm">
-        <div class="flex-1 overflow-y-auto p-6 space-y-8">
-          <section>
-            <h2 class="text-xs font-bold text-slate-900 uppercase tracking-widest mb-4">1. Standort</h2>
-            <div class="space-y-3">
-              <div class="relative group">
-                <i data-lucide="search" class="absolute left-3 top-3 w-4 h-4 text-slate-400"></i>
-                <input type="text" id="location-search" placeholder="Ort suchen (z.B. Zürich, Bali, Tokyo)"
-                  class="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 pl-10 pr-3 text-sm font-medium focus:bg-white focus:border-blue-500 outline-none transition">
-                <div id="search-results" class="absolute top-full left-0 right-0 bg-white border border-slate-100 rounded-xl mt-2 hidden z-50 max-h-60 overflow-y-auto shadow-xl p-1"></div>
-              </div>
-              <div class="grid grid-cols-2 gap-3">
-                <div>
-                  <label class="text-[10px] font-bold text-slate-500 uppercase">Format</label>
-                  <select id="format-select" class="mt-2 w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-700 focus:border-blue-500 outline-none cursor-pointer appearance-none">
-                    <option value="a4-landscape">DIN A4 Quer</option>
-                    <option value="a4-portrait">DIN A4 Hoch</option>
-                    <option value="a3-landscape">DIN A3 Quer</option>
-                    <option value="poster">Poster 2:3</option>
-                    <option value="postcard">Postkarte 3:5</option>
-                    <option value="square">Quadratisch 1:1</option>
-                    <option value="round">Rund (Ø)</option>
-                    <option value="panorama">Panorama 21:9</option>
-                    <option value="landscape">Landscape 3:2</option>
-                    <option value="portrait">Portrait 2:3</option>
-                  </select>
-                </div>
-                <div>
-                  <label class="text-[10px] font-bold text-slate-500 uppercase">Breite (mm)</label>
-                  <input type="number" id="export-width-mm" value="210" min="80" max="1200" step="10"
-                    class="mt-2 w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-bold text-slate-800 focus:border-blue-500 outline-none text-center">
-                </div>
-              </div>
-              <p id="format-meta" class="text-[11px] text-slate-500">Auswahlrahmen passt sich dem Format an.</p>
-            </div>
-          </section>
+    <div class="group">
+      <div class="layer-item" style="padding: 10px 14px; display:flex; justify-content:space-between; align-items:center;">
+        <span style="font-weight:600; font-size:14px;">Terrain (3D Profiling)</span>
+        <div class="ios-switch on" id="terrainToggle"></div>
+      </div>
+    </div>
 
-          <section>
-            <h2 class="text-xs font-bold text-slate-900 uppercase tracking-widest mb-4">2. Topografie</h2>
-            <div class="space-y-4">
-              <div class="bg-slate-50 border border-slate-200 rounded-xl p-3">
-                <label class="text-[10px] font-bold text-slate-500 uppercase">Kontur-Abstand (m)</label>
-                <input type="range" id="contour-interval" min="10" max="200" step="5" value="50" class="mt-3">
-                <div class="flex justify-between text-[10px] text-slate-400 mt-2">
-                  <span>Fein</span>
-                  <span id="contour-value">50 m</span>
-                  <span>Grob</span>
-                </div>
-              </div>
-              <div class="grid grid-cols-2 gap-3">
-                <div class="bg-slate-50 border border-slate-200 rounded-xl p-3">
-                  <label class="text-[10px] font-bold text-slate-500 uppercase">Linienfarbe</label>
-                  <input type="color" id="line-color" value="#111827" class="mt-3 w-full h-10 rounded-lg border border-slate-200 bg-white">
-                </div>
-                <div class="bg-slate-50 border border-slate-200 rounded-xl p-3">
-                  <label class="text-[10px] font-bold text-slate-500 uppercase">Hintergrund</label>
-                  <input type="color" id="bg-color" value="#ffffff" class="mt-3 w-full h-10 rounded-lg border border-slate-200 bg-white">
-                </div>
-              </div>
-              <div class="bg-slate-50 border border-slate-200 rounded-xl p-3">
-                <label class="text-[10px] font-bold text-slate-500 uppercase">Auflösung</label>
-                <div class="mt-3 flex items-center gap-3">
-                  <input type="range" id="grid-density" min="18" max="40" step="2" value="28" class="flex-1">
-                  <span id="grid-label" class="text-xs font-semibold text-slate-600">28x28</span>
-                </div>
-                <p class="text-[10px] text-slate-400 mt-2">Mehr Punkte = mehr Details (langsamere API).</p>
-              </div>
-            </div>
-          </section>
+    <button id="btnGen" class="btn-main">Generate Preview</button>
+  </div>
+</div>
 
-          <section>
-            <h2 class="text-xs font-bold text-slate-900 uppercase tracking-widest mb-4">3. Export</h2>
-            <button id="btn-generate" class="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl shadow-md transition flex items-center justify-center gap-2 group">
-              <i data-lucide="sparkles" class="w-4 h-4"></i>
-              <span>GENERATE TOPO PREVIEW</span>
-            </button>
-            <div class="mt-3 text-[10px] text-slate-500">API: OpenTopoData (SRTM90m)</div>
-          </section>
+<div class="viewport">
+  <div id="map"></div>
+  <div class="viewfinder-wrapper">
+    <svg id="vfSvg" width="100%" height="100%">
+      <defs><mask id="vfMask"><rect width="100%" height="100%" fill="white"/><path id="vfHole" fill="black"/></mask></defs>
+      <rect width="100%" height="100%" class="vf-mask" mask="url(#vfMask)"/>
+      <path id="vfOutline" class="vf-stroke" />
+    </svg>
+    <div id="vfBadge" class="vf-badge"></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal">
+  <div class="modal-card">
+    <div class="preview-stage" id="previewArea"></div>
+    <div class="export-side">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <h2 style="margin:0; font-size:24px; font-weight:800; letter-spacing:-1px;">Export</h2>
+        <button onclick="closeModal()" style="border:none;background:none;font-size:32px;cursor:pointer;color:var(--color-text-sec);">&times;</button>
+      </div>
+
+      <div class="group">
+        <label>3D Print (3MF Assembly)</label>
+        <p style="font-size:13px; color:var(--color-text-sec); margin-bottom:12px; line-height:1.5;">
+          Solid Terrain (Watertight). Individual heights: Relief from 0.5mm to chosen Max.
+        </p>
+        <div class="input-grid">
+           <div><label>Sockel (Base)</label><input type="text" value="2.0 mm" disabled></div>
+           <div><label>Relief Max (mm)</label><input type="number" id="targetH" value="8"></div>
         </div>
-      </aside>
+        <button id="btn3MF" class="btn-main" style="margin-top:10px;">3MF Download</button>
+      </div>
 
-      <div class="flex-1 relative bg-slate-100">
-        <div id="map" class="w-full h-full"></div>
-        <div id="viewfinder"></div>
-        <div id="loader" class="absolute inset-0 bg-white/90 backdrop-blur-sm z-[1000] hidden flex-col items-center justify-center">
-          <div class="animate-spin text-slate-900 mb-4"><i data-lucide="loader-2" width="48" height="48"></i></div>
-          <div class="text-slate-800 text-sm font-bold uppercase tracking-widest" id="loading-text">Lade Höhendaten…</div>
-          <div id="loading-sub" class="text-xs text-slate-500 mt-2">Bereite Anfrage vor</div>
+      <div class="group">
+        <label>Laser / Vector (DXF)</label>
+        <button id="btnDXF" class="btn-main" style="background:#3A3A3C;">DXF R12 Download</button>
+      </div>
+
+      <div class="group">
+        <label>Poster (PNG High-Res)</label>
+        <div class="input-grid">
+           <div><label>Quality</label><select id="dpiSel"><option value="150">Draft (150)</option><option value="300" selected>Print (300)</option></select></div>
+           <div><label>Action</label><button id="btnPNG" class="btn-main" style="background:#D1D1D6; color:#000; padding:10px;">PNG</button></div>
         </div>
       </div>
     </div>
+  </div>
+</div>
 
-    <div id="preview" class="hidden h-full">
-      <div class="h-full flex flex-col">
-        <div class="flex-1 overflow-hidden grid grid-cols-[1.1fr_0.9fr] gap-0">
-          <div class="flex items-center justify-center bg-slate-900/5">
-            <canvas id="preview-canvas" width="900" height="600"></canvas>
+<script>
+(() => {
+  // --- STATE ---
+  const state = {
+    wMm: 200, hMm: 140, shape: 'rect',
+    layers: {
+      buildings: { name:'Buildings', on:true, color:'#808080', width: 0.25, aci: 1 }, 
+      highways: { name:'Highways', on:true, color:'#000000', width: 0.5, aci: 7 },
+      roads: { name:'Roads', on:true, color:'#444444', width: 0.3, aci: 7 }, 
+      water: { name:'Water', on:true, color:'#CCCCCC', width: 0.4, aci: 5 }, 
+      green: { name:'Green', on:true, color:'#EEEEEE', width: 0.15, aci: 3 }
+    },
+    useTerrain: true, bbox: null, geo: null, terrainData: null
+  };
+
+  const $ = id => document.getElementById(id);
+  const msg = t => { $('loaderText').innerText=t; $('loader').classList.add('active'); };
+  const idle = () => $('loader').classList.remove('active');
+
+  // --- HELPERS (DECLARED FIRST) ---
+  function getAutoWidth(key) {
+    const z = map.getZoom();
+    const base = (key==='roads'||key==='highways') ? 0.45 : 0.25;
+    return Math.max(0.08, base / Math.pow(1.15, (16 - z)));
+  }
+
+  function getZInterpolated(nx, ny, zMin, zMax) {
+    if(!state.terrainData || state.terrainData.h.length === 0) return zMin;
+    const T = state.terrainData;
+    const rFloat = ny * (T.rows-1);
+    const cFloat = nx * (T.cols-1);
+    const r0 = Math.floor(rFloat), r1 = Math.min(T.rows-1, r0+1);
+    const c0 = Math.floor(cFloat), c1 = Math.min(T.cols-1, c0+1);
+    const dr = rFloat - r0, dc = cFloat - c0;
+    
+    const h00 = T.h[r0*T.cols+c0], h01 = T.h[r0*T.cols+c1], h10 = T.h[r1*T.cols+c0], h11 = T.h[r1*T.cols+c1];
+    const hNorm = (h00*(1-dr)*(1-dc) + h01*(1-dr)*dc + h10*dr*(1-dc) + h11*dr*dc);
+    return zMin + (hNorm * (zMax - zMin));
+  }
+
+  // --- MAP ---
+  const map = L.map('map', { zoomControl:false, preferCanvas:true }).setView([48.137, 11.575], 14); 
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { maxZoom:19 }).addTo(map);
+
+  let searchTimer;
+  $('searchInp').addEventListener('input', (e) => {
+    clearTimeout(searchTimer);
+    const val = e.target.value;
+    if(val.length < 3) return;
+    searchTimer = setTimeout(async () => {
+      try {
+        const r = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(val)}`);
+        const d = await r.json();
+        if(d[0]) map.setView([d[0].lat, d[0].lon], 14);
+      } catch(e){}
+    }, 500);
+  });
+
+  // --- UI ---
+  const updateLayerList = () => {
+    const list = $('layerList'); list.innerHTML = '';
+    Object.keys(state.layers).forEach(k => {
+      const L = state.layers[k];
+      const div = document.createElement('div');
+      div.className = `layer-item`;
+      div.innerHTML = `
+        <div class="layer-head" onclick="this.parentElement.classList.toggle('open')">
+          <div class="layer-info">
+            <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M6 9l6 6 6-6"/></svg>
+            <span>${L.name}</span>
           </div>
-          <div class="bg-white border-l border-slate-100 p-8 flex flex-col">
-            <div class="flex-1">
-              <h2 class="font-display text-xl text-slate-900">Preview & Download</h2>
-              <p class="text-sm text-slate-500 mt-2">Dein Höhenprofil ist bereit. Exportiere als PNG für Druck oder DXF für Lasergravur.</p>
-              <div class="mt-6 space-y-4">
-                <div class="bg-slate-50 border border-slate-200 rounded-xl p-4">
-                  <div class="text-xs font-bold text-slate-500 uppercase">Projekt</div>
-                  <div id="preview-meta" class="mt-2 text-sm font-semibold text-slate-800">Format · Größe · Bereich</div>
-                  <div id="preview-range" class="text-xs text-slate-500 mt-1">Höhen: —</div>
-                </div>
-                <div class="bg-slate-50 border border-slate-200 rounded-xl p-4">
-                  <div class="text-xs font-bold text-slate-500 uppercase">Tipps</div>
-                  <ul class="text-xs text-slate-500 mt-2 space-y-1">
-                    <li>• Für Laser: DXF in Illustrator/Inkscape öffnen.</li>
-                    <li>• Für Druck: PNG mit 300 DPI im Layout platzieren.</li>
-                    <li>• Runde Formate werden automatisch beschnitten.</li>
-                  </ul>
-                </div>
-              </div>
-            </div>
-            <div class="space-y-3">
-              <button id="download-png" class="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl">PNG Download</button>
-              <button id="download-dxf" class="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl">DXF Download</button>
-            </div>
-          </div>
+          <div class="ios-switch ${L.on?'on':''}"></div>
         </div>
-      </div>
-    </div>
-  </main>
+        <div class="layer-body">
+          <div class="cust-row"><label style="margin:0">Color</label><div class="color-dot" style="background:${L.color}"><input type="color" value="${L.color}"></div></div>
+          <div class="cust-row"><label style="margin:0">Width</label><input type="range" min="0.05" max="4" step="0.05" value="${L.width}"></div>
+        </div>`;
+      const sw = div.querySelector('.ios-switch');
+      sw.onclick = (e) => { e.stopPropagation(); L.on = !L.on; sw.classList.toggle('on', L.on); if(state.geo) renderSVG(); };
+      div.querySelector('input[type=color]').oninput = (e) => { L.color = e.target.value; e.target.parentElement.style.background = L.color; if(state.geo) renderSVG(); };
+      div.querySelector('input[type=range]').oninput = (e) => { L.width = parseFloat(e.target.value); if(state.geo) renderSVG(); };
+      list.appendChild(div);
+    });
+  };
+  updateLayerList();
 
-  <script>
-    const formats = {
-      'a4-landscape': { label: 'DIN A4 Quer', ratio: 1.414, shape: 'rect' },
-      'a4-portrait': { label: 'DIN A4 Hoch', ratio: 1 / 1.414, shape: 'rect' },
-      'a3-landscape': { label: 'DIN A3 Quer', ratio: 1.414, shape: 'rect' },
-      'poster': { label: 'Poster 2:3', ratio: 2 / 3, shape: 'rect' },
-      'postcard': { label: 'Postkarte 3:5', ratio: 3 / 5, shape: 'rect' },
-      'square': { label: 'Quadratisch 1:1', ratio: 1, shape: 'rect' },
-      'round': { label: 'Rund', ratio: 1, shape: 'circle' },
-      'panorama': { label: 'Panorama 21:9', ratio: 21 / 9, shape: 'rect' },
-      'landscape': { label: 'Landscape 3:2', ratio: 3 / 2, shape: 'rect' },
-      'portrait': { label: 'Portrait 2:3', ratio: 2 / 3, shape: 'rect' }
-    };
+  $('terrainToggle').onclick = function() { state.useTerrain = !state.useTerrain; this.classList.toggle('on'); };
+  
+  function updateVf() {
+    state.wMm = +$('dimW').value; state.hMm = +$('dimH').value;
+    if(state.shape !== 'rect') state.hMm = state.wMm;
+    const ratio = state.hMm / state.wMm;
+    const winW = window.innerWidth, winH = window.innerHeight;
+    const availW = Math.max(0, winW - 400);
+    const cx = 400 + availW / 2, cy = winH / 2;
+    const targetW = availW * 0.7, targetH = winH * 0.7;
+    let pxW, pxH;
+    if(targetW*ratio <= targetH) { pxW=targetW; pxH=pxW*ratio; } else { pxH=targetH; pxW=pxH/ratio; }
+    const hw = pxW/2, hh = pxH/2;
+    let d = '';
+    if(state.shape==='rect'||state.shape==='sq') d = `M ${cx-hw},${cy-hh} H ${cx+hw} V ${cy+hh} H ${cx-hw} Z`;
+    else if(state.shape==='circle') d = `M ${cx},${cy} m -${hw},0 a ${hw},${hw} 0 1,0 ${pxW},0 a ${hw},${hw} 0 1,0 -${pxW},0`;
+    
+    $('vfHole').setAttribute('d', d); $('vfOutline').setAttribute('d', d);
+    $('vfBadge').style.left = cx+'px'; $('vfBadge').style.top = (cy+hh)+'px'; 
+    $('vfBadge').innerText = `${state.wMm} × ${state.hMm} mm`;
+    state.bbox = { sw: map.containerPointToLatLng([cx-hw, cy+hh]), ne: map.containerPointToLatLng([cx+hw, cy-hh]) };
+  }
+  window.onresize = updateVf; map.on('move zoom', updateVf); setTimeout(updateVf,500);
 
-    const App = {
-      map: null,
-      state: {
-        bounds: null,
-        grid: [],
-        min: 0,
-        max: 0,
-        segments: [],
-        format: 'a4-landscape'
-      },
+  // --- GENERATION ---
+  $('btnGen').onclick = async () => {
+    msg('Fetching Data...');
+    const {sw, ne} = state.bbox;
+    const box = `${sw.lat-0.001},${sw.lng-0.001},${ne.lat+0.001},${ne.lng+0.001}`;
+    let q = `[out:json][timeout:90];(way["building"](${box});relation["building"](${box});way["natural"="water"](${box});relation["natural"="water"](${box});way["waterway"](${box});way["highway"](${box});way["landuse"="grass"](${box});way["leisure"="park"](${box}););(._;>;);out body;`;
+    try {
+      const r = await fetch("https://overpass-api.de/api/interpreter", {method:'POST', body:'data='+encodeURIComponent(q)});
+      const osm = await r.json();
+      if(state.useTerrain) { msg('Fetching Elevations...'); await fetchTerrain(sw, ne); }
+      else state.terrainData = null;
+      processGeo(osm); idle(); $('modal').classList.add('open');
+    } catch(e) { idle(); alert("Error loading OSM data."); }
+  };
 
-      init() {
-        this.map = L.map('map', { zoomControl: false, attributionControl: false, zoomSnap: 0.5 }).setView([46.948, 7.447], 13);
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { maxZoom: 19, subdomains: 'abcd' }).addTo(this.map);
-        L.control.zoom({ position: 'topright' }).addTo(this.map);
+  async function fetchTerrain(sw, ne) {
+    try {
+      const rows=140, cols=140, locs=[];
+      const dLat=(ne.lat-sw.lat)/(rows-1), dLon=(ne.lng-sw.lng)/(cols-1);
+      for(let r=0;r<rows;r++) for(let c=0;c<cols;c++) locs.push({latitude:sw.lat+r*dLat, longitude:sw.lng+c*dLon});
+      const res = await fetch('https://api.open-elevation.com/api/v1/lookup', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({locations:locs})});
+      const j = await res.json();
+      let h = j.results.map(x=>x.elevation);
+      for(let i=0; i<6; i++) h = smoothPass(h, rows, cols); 
+      let min=Infinity, max=-Infinity; h.forEach(v => { if(v<min) min=v; if(v>max) max=v; });
+      const delta = max-min || 1;
+      state.terrainData = { rows, cols, h: h.map(z=>(z-min)/delta), min, max, delta };
+    } catch(e) { state.terrainData = null; }
+  }
 
-        this.updateViewfinder();
-        this.updateFormatMeta();
-        this.initSearch();
-
-        document.getElementById('format-select').addEventListener('change', (e) => {
-          this.state.format = e.target.value;
-          this.updateViewfinder();
-          this.updateFormatMeta();
-        });
-
-        document.getElementById('grid-density').addEventListener('input', (e) => {
-          document.getElementById('grid-label').textContent = `${e.target.value}x${e.target.value}`;
-        });
-
-        document.getElementById('contour-interval').addEventListener('input', (e) => {
-          document.getElementById('contour-value').textContent = `${e.target.value} m`;
-        });
-
-        window.addEventListener('resize', () => this.updateViewfinder());
-        document.getElementById('btn-generate').addEventListener('click', () => this.generate());
-        document.getElementById('back-to-map').addEventListener('click', () => this.showBuilder());
-        document.getElementById('download-png').addEventListener('click', () => this.downloadPNG());
-        document.getElementById('download-dxf').addEventListener('click', () => this.downloadDXF());
-
-        lucide.createIcons();
-      },
-
-      updateFormatMeta() {
-        const format = formats[this.state.format];
-        document.getElementById('format-meta').textContent = `${format.label} · Verhältnis ${format.ratio.toFixed(2)}${format.shape === 'circle' ? ' · Rund' : ''}`;
-      },
-
-      updateViewfinder() {
-        const container = document.getElementById('map');
-        const viewfinder = document.getElementById('viewfinder');
-        const { ratio, shape } = formats[this.state.format];
-
-        const wCont = container.clientWidth;
-        const hCont = container.clientHeight;
-        const margin = 90;
-
-        let w = wCont - margin;
-        let h = w / ratio;
-        if (h > hCont - margin) {
-          h = hCont - margin;
-          w = h * ratio;
-        }
-
-        viewfinder.style.width = `${Math.round(w)}px`;
-        viewfinder.style.height = `${Math.round(h)}px`;
-        viewfinder.style.left = `${(wCont - w) / 2}px`;
-        viewfinder.style.top = `${(hCont - h) / 2}px`;
-        viewfinder.classList.toggle('circle', shape === 'circle');
-      },
-
-      getBounds() {
-        const viewfinder = document.getElementById('viewfinder');
-        const container = document.getElementById('map');
-        const rect = viewfinder.getBoundingClientRect();
-        const mapRect = container.getBoundingClientRect();
-        const left = rect.left - mapRect.left;
-        const top = rect.top - mapRect.top;
-        const nw = this.map.containerPointToLatLng([left, top]);
-        const se = this.map.containerPointToLatLng([left + rect.width, top + rect.height]);
-        return { south: se.lat, west: nw.lng, north: nw.lat, east: se.lng, widthPx: rect.width, heightPx: rect.height };
-      },
-
-      async generate() {
-        const loader = document.getElementById('loader');
-        const loadingText = document.getElementById('loading-text');
-        const loadingSub = document.getElementById('loading-sub');
-        loader.classList.remove('hidden');
-        loader.classList.add('flex');
-
-        loadingText.textContent = 'Lade Höhendaten…';
-        loadingSub.textContent = 'Starte API Abfrage';
-
-        try {
-          this.state.bounds = this.getBounds();
-          const density = parseInt(document.getElementById('grid-density').value, 10);
-          const grid = await this.fetchElevations(density, loadingSub);
-          this.state.grid = grid.values;
-          this.state.min = grid.min;
-          this.state.max = grid.max;
-          this.state.segments = this.generateContours();
-          this.renderPreview();
-          this.showPreview();
-        } catch (error) {
-          alert(`Fehler bei den Höhendaten: ${error.message}`);
-        } finally {
-          loader.classList.add('hidden');
-          loader.classList.remove('flex');
-        }
-      },
-
-      async fetchElevations(gridSize, loadingSub) {
-        const bounds = this.state.bounds;
-        const latStep = (bounds.north - bounds.south) / (gridSize - 1);
-        const lonStep = (bounds.east - bounds.west) / (gridSize - 1);
-
-        const points = [];
-        for (let y = 0; y < gridSize; y += 1) {
-          for (let x = 0; x < gridSize; x += 1) {
-            const lat = bounds.south + latStep * y;
-            const lon = bounds.west + lonStep * x;
-            points.push({ lat, lon });
-          }
-        }
-
-        const batchSize = 100;
-        const values = Array.from({ length: gridSize }, () => Array(gridSize).fill(0));
-        let min = Infinity;
-        let max = -Infinity;
-
-        for (let i = 0; i < points.length; i += batchSize) {
-          const slice = points.slice(i, i + batchSize);
-          const locations = slice.map(p => `${p.lat},${p.lon}`).join('|');
-          loadingSub.textContent = `API Batch ${Math.floor(i / batchSize) + 1} / ${Math.ceil(points.length / batchSize)}`;
-
-          const response = await fetch(`https://api.opentopodata.org/v1/srtm90m?locations=${locations}`);
-          if (!response.ok) {
-            throw new Error('OpenTopoData API antwortet nicht');
-          }
-          const data = await response.json();
-          data.results.forEach((result, idx) => {
-            const globalIndex = i + idx;
-            const row = Math.floor(globalIndex / gridSize);
-            const col = globalIndex % gridSize;
-            const elevation = result.elevation ?? 0;
-            values[row][col] = elevation;
-            min = Math.min(min, elevation);
-            max = Math.max(max, elevation);
-          });
-        }
-
-        return { values, min, max };
-      },
-
-      generateContours() {
-        const interval = parseInt(document.getElementById('contour-interval').value, 10);
-        const { min, max, grid } = { min: this.state.min, max: this.state.max, grid: this.state.grid };
-        const thresholds = [];
-        const start = Math.floor(min / interval) * interval;
-        for (let t = start; t <= max; t += interval) {
-          thresholds.push(t);
-        }
-
-        const width = 900;
-        const ratio = formats[this.state.format].ratio;
-        const height = Math.round(width / ratio);
-
-        const cols = grid[0].length;
-        const rows = grid.length;
-        const cellW = width / (cols - 1);
-        const cellH = height / (rows - 1);
-        const segments = [];
-
-        const interpolate = (v1, v2, t) => {
-          const denom = v2 - v1;
-          if (denom === 0) return 0.5;
-          return (t - v1) / denom;
-        };
-
-        thresholds.forEach(level => {
-          for (let y = 0; y < rows - 1; y += 1) {
-            for (let x = 0; x < cols - 1; x += 1) {
-              const v0 = grid[y][x];
-              const v1 = grid[y][x + 1];
-              const v2 = grid[y + 1][x + 1];
-              const v3 = grid[y + 1][x];
-
-              let idx = 0;
-              if (v0 >= level) idx |= 1;
-              if (v1 >= level) idx |= 2;
-              if (v2 >= level) idx |= 4;
-              if (v3 >= level) idx |= 8;
-              if (idx === 0 || idx === 15) continue;
-
-              const tTop = interpolate(v0, v1, level);
-              const tRight = interpolate(v1, v2, level);
-              const tBottom = interpolate(v3, v2, level);
-              const tLeft = interpolate(v0, v3, level);
-
-              const points = {
-                top: { x: x + tTop, y },
-                right: { x: x + 1, y: y + tRight },
-                bottom: { x: x + tBottom, y: y + 1 },
-                left: { x, y: y + tLeft }
-              };
-
-              const addSegment = (a, b) => {
-                segments.push({
-                  x1: a.x * cellW,
-                  y1: a.y * cellH,
-                  x2: b.x * cellW,
-                  y2: b.y * cellH
-                });
-              };
-
-              switch (idx) {
-                case 1:
-                  addSegment(points.left, points.top);
-                  break;
-                case 2:
-                  addSegment(points.top, points.right);
-                  break;
-                case 3:
-                  addSegment(points.left, points.right);
-                  break;
-                case 4:
-                  addSegment(points.right, points.bottom);
-                  break;
-                case 5:
-                  addSegment(points.left, points.top);
-                  addSegment(points.right, points.bottom);
-                  break;
-                case 6:
-                  addSegment(points.top, points.bottom);
-                  break;
-                case 7:
-                  addSegment(points.left, points.bottom);
-                  break;
-                case 8:
-                  addSegment(points.bottom, points.left);
-                  break;
-                case 9:
-                  addSegment(points.top, points.bottom);
-                  break;
-                case 10:
-                  addSegment(points.top, points.right);
-                  addSegment(points.bottom, points.left);
-                  break;
-                case 11:
-                  addSegment(points.right, points.bottom);
-                  break;
-                case 12:
-                  addSegment(points.left, points.right);
-                  break;
-                case 13:
-                  addSegment(points.top, points.right);
-                  break;
-                case 14:
-                  addSegment(points.left, points.top);
-                  break;
-                default:
-                  break;
-              }
-            }
-          }
-        });
-
-        return segments;
-      },
-
-      renderPreview() {
-        const canvas = document.getElementById('preview-canvas');
-        const ctx = canvas.getContext('2d');
-        const ratio = formats[this.state.format].ratio;
-        canvas.width = 900;
-        canvas.height = Math.round(900 / ratio);
-
-        const bg = document.getElementById('bg-color').value;
-        const line = document.getElementById('line-color').value;
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-        if (formats[this.state.format].shape === 'circle') {
-          ctx.save();
-          ctx.beginPath();
-          ctx.arc(canvas.width / 2, canvas.height / 2, Math.min(canvas.width, canvas.height) / 2, 0, Math.PI * 2);
-          ctx.clip();
-        }
-
-        ctx.fillStyle = bg;
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.strokeStyle = line;
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-
-        this.state.segments.forEach(seg => {
-          ctx.moveTo(seg.x1, seg.y1);
-          ctx.lineTo(seg.x2, seg.y2);
-        });
-
-        ctx.stroke();
-
-        if (formats[this.state.format].shape === 'circle') {
-          ctx.restore();
-        }
-
-        const widthMm = parseFloat(document.getElementById('export-width-mm').value || '0');
-        const previewMeta = document.getElementById('preview-meta');
-        const format = formats[this.state.format];
-        previewMeta.textContent = `${format.label} · ${widthMm} mm Breite`;
-        document.getElementById('preview-range').textContent = `Höhen: ${this.state.min.toFixed(0)}m – ${this.state.max.toFixed(0)}m`;
-      },
-
-      showPreview() {
-        document.getElementById('builder').classList.add('hidden');
-        document.getElementById('preview').classList.remove('hidden');
-        document.getElementById('back-to-map').classList.remove('hidden');
-      },
-
-      showBuilder() {
-        document.getElementById('builder').classList.remove('hidden');
-        document.getElementById('preview').classList.add('hidden');
-        document.getElementById('back-to-map').classList.add('hidden');
-      },
-
-      downloadPNG() {
-        const canvas = document.getElementById('preview-canvas');
-        const link = document.createElement('a');
-        link.href = canvas.toDataURL('image/png');
-        link.download = 'topo-preview.png';
-        link.click();
-      },
-
-      downloadDXF() {
-        const widthMm = parseFloat(document.getElementById('export-width-mm').value || '0');
-        const ratio = formats[this.state.format].ratio;
-        const heightMm = widthMm / ratio;
-        const canvas = document.getElementById('preview-canvas');
-
-        const scaleX = widthMm / canvas.width;
-        const scaleY = heightMm / canvas.height;
-        const radius = Math.min(widthMm, heightMm) / 2;
-        const cx = widthMm / 2;
-        const cy = heightMm / 2;
-
-        let dxf = '0\nSECTION\n2\nENTITIES\n';
-        this.state.segments.forEach(seg => {
-          const x1 = seg.x1 * scaleX;
-          const y1 = seg.y1 * scaleY;
-          const x2 = seg.x2 * scaleX;
-          const y2 = seg.y2 * scaleY;
-
-          if (formats[this.state.format].shape === 'circle') {
-            const d1 = Math.hypot(x1 - cx, y1 - cy);
-            const d2 = Math.hypot(x2 - cx, y2 - cy);
-            if (d1 > radius || d2 > radius) return;
-          }
-
-          dxf += `0\nLINE\n8\nTOPO\n10\n${x1.toFixed(3)}\n20\n${y1.toFixed(3)}\n11\n${x2.toFixed(3)}\n21\n${y2.toFixed(3)}\n`;
-        });
-        dxf += '0\nENDSEC\n0\nEOF\n';
-
-        const blob = new Blob([dxf], { type: 'application/dxf' });
-        const link = document.createElement('a');
-        link.href = URL.createObjectURL(blob);
-        link.download = 'topo-contours.dxf';
-        link.click();
-      },
-
-      initSearch() {
-        const inp = document.getElementById('location-search');
-        const resDiv = document.getElementById('search-results');
-        let t;
-        inp.addEventListener('input', e => {
-          clearTimeout(t);
-          t = setTimeout(async () => {
-            const q = e.target.value;
-            if (q.length < 3) { resDiv.classList.add('hidden'); return; }
-            try {
-              const req = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}`);
-              const data = await req.json();
-              resDiv.innerHTML = '';
-              data.slice(0, 5).forEach(i => {
-                const d = document.createElement('div');
-                d.className = 'p-2 hover:bg-slate-50 cursor-pointer text-xs border-b last:border-0';
-                d.textContent = i.display_name;
-                d.onclick = () => {
-                  this.map.setView([i.lat, i.lon], 13);
-                  resDiv.classList.add('hidden');
-                };
-                resDiv.appendChild(d);
-              });
-              resDiv.classList.remove('hidden');
-            } catch (err) {
-              resDiv.classList.add('hidden');
-            }
-          }, 500);
-        });
+  function smoothPass(data, rows, cols) {
+    const out = new Float32Array(data.length);
+    for(let r=0; r<rows; r++) for(let c=0; c<cols; c++) {
+      let sum=0, wSum=0;
+      for(let rr=r-1; rr<=r+1; rr++) for(let cc=c-1; cc<=c+1; cc++) {
+        if(rr>=0 && rr<rows && cc>=0 && cc<cols) { const w = (rr===r && cc===c) ? 4 : 1; sum+=data[rr*cols+cc]*w; wSum+=w; }
       }
-    };
+      out[r*cols+c] = sum/wSum;
+    }
+    return out;
+  }
 
-    window.addEventListener('load', () => App.init());
-  </script>
+  function processGeo(osm) {
+    const {wMm, hMm} = state, geojson = osmtogeojson(osm), {sw, ne} = state.bbox;
+    const mapDist = map.distance(sw, {lat: sw.lat, lng: ne.lng});
+    const mToMm = wMm / mapDist;
+    const proj = (lon,lat) => [(lon-sw.lng)/(ne.lng-sw.lng)*wMm, hMm - ((lat-sw.lat)/(ne.lat-sw.lat)*hMm)];
+    let mask;
+    if(state.shape==='circle') { const r=wMm/2, pts=[]; for(let i=0;i<=64;i++){const a=i/64*Math.PI*2; pts.push([r+r*Math.cos(a), r+r*Math.sin(a)]);} mask=turf.polygon([pts]); }
+    else mask=turf.polygon([[[0,0],[wMm,0],[wMm,hMm],[0,hMm],[0,0]]]);
+
+    const layers = { buildings:[], roads:[], highways:[], water:[], green:[] };
+    geojson.features.forEach(f => {
+      if(!f.geometry) return;
+      const t = f.properties||{}; turf.rewind(f, {mutate:true});
+      const transform = c => typeof c[0]==='number' ? proj(c[0],c[1]) : c.map(transform);
+      let type=null, h=0, isL=false;
+      if(t.building) { type='buildings'; h = t.height ? parseFloat(t.height) : (t['building:levels'] ? t['building:levels']*3.0 : 10); }
+      else if(t.highway) { type = ['motorway','trunk','primary'].includes(t.highway) ? 'highways' : 'roads'; isL=true; }
+      else if(t.natural==='water'||t.waterway) type='water';
+      else if(t.landuse==='grass'||t.leisure==='park') type='green';
+      
+      if(!type) return;
+      try {
+        if(isL && f.geometry.type.includes('Line')) {
+           const widthM = (state.layers[type].width / mToMm); 
+           const buf = turf.buffer(f, widthM, {units:'meters'});
+           if(buf) {
+             const bufP = JSON.parse(JSON.stringify(buf)); bufP.geometry.coordinates = transform(buf.geometry.coordinates);
+             const c = turf.intersect(mask, bufP);
+             if(c) { const g=c.geometry; const polys=g.type==='Polygon'?[g.coordinates]:g.coordinates; polys.forEach(r=>layers[type].push({pts:r[0], h:0, type:'poly'})); }
+           }
+        } else {
+          const cleanF = turf.buffer(JSON.parse(JSON.stringify(f)), 0, {units:'meters'});
+          if(!cleanF) return;
+          cleanF.geometry.coordinates = transform(cleanF.geometry.coordinates);
+          const c = turf.intersect(mask, cleanF);
+          if(c) { const g=c.geometry; if(g.type==='Polygon') layers[type].push({pts:g.coordinates[0], h}); else if(g.type==='MultiPolygon') g.coordinates.forEach(p=>layers[type].push({pts:p[0], h})); }
+        }
+      } catch(e){}
+    });
+    state.geo = layers;
+    renderSVG();
+  }
+
+  function renderSVG() {
+    const {wMm, hMm} = state;
+    let svg = `<svg id="prevSvg" width="${wMm}mm" height="${hMm}mm" viewBox="0 0 ${wMm} ${hMm}" xmlns="http://www.w3.org/2000/svg">`;
+    svg += `<rect width="100%" height="100%" fill="#fff"/>`;
+    const draw = (arr, type) => { if(!arr) return; const style = state.layers[type];
+      arr.forEach(o => { svg += `<path d="M ${o.pts.map(p=>p[0].toFixed(1)+' '+p[1].toFixed(1)).join(' L ')} Z" fill="${style.color}" stroke="none" fill-rule="evenodd"/>`; });
+    };
+    ['green','water','roads','highways','buildings'].forEach(k => { if(state.layers[k] && state.layers[k].on) draw(state.geo[k], k); });
+    svg += `</svg>`;
+    $('previewArea').innerHTML = svg;
+  }
+
+  // --- EXPORTS ---
+  const saveBlob = (b, n) => { const a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download=n; a.click(); };
+
+  $('btnDXF').onclick = () => {
+    try {
+      let dxf = "0\nSECTION\n2\nHEADER\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n";
+      const writeP = (l, pts, cl, aci) => {
+        dxf += `0\nLWPOLYLINE\n8\n${l}\n62\n${aci}\n90\n${pts.length}\n70\n1\n`;
+        pts.forEach(p => dxf += `10\n${p[0].toFixed(3)}\n20\n${(state.hMm - p[1]).toFixed(3)}\n`);
+      };
+      Object.keys(state.geo).forEach(k => {
+        const aci = state.layers[k] ? state.layers[k].aci : 7;
+        state.geo[k].forEach(o=>writeP(k.toUpperCase(), o.pts, true, aci));
+      });
+      writeP('FRAME', [[0,0],[state.wMm,0],[state.wMm,state.hMm],[0,state.hMm],[0,0]], true, 6);
+      dxf += "0\nENDSEC\n0\nEOF";
+      saveBlob(new Blob([dxf], {type:'application/dxf'}), 'Vectorcity.dxf');
+    } catch(e) { alert("DXF Export failed."); }
+  };
+
+  $('btnPNG').onclick = () => {
+    try {
+      const dpi = +$('dpiSel').value, pxScale = dpi / 25.4;
+      const w = Math.ceil(state.wMm * pxScale), h = Math.ceil(state.hMm * pxScale);
+      const svgEl = $('prevSvg'), xml = new XMLSerializer().serializeToString(svgEl);
+      const canvas = document.createElement('canvas'); canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext('2d'), img = new Image();
+      img.onload = () => { ctx.fillStyle='#fff'; ctx.fillRect(0,0,w,h); ctx.drawImage(img, 0, 0, w, h); canvas.toBlob(b => saveBlob(b, `Vectorcity_${dpi}dpi.png`)); };
+      img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(xml)));
+    } catch(e) { alert("PNG Export failed."); }
+  };
+
+  $('btn3MF').onclick = async () => {
+    msg('Generating 3D Assembly...'); await new Promise(r=>setTimeout(r,100));
+    const zip = new JSZip(), targetH = +$('targetH').value;
+    const mapDist = map.distance(state.bbox.sw, {lat: state.bbox.sw.lat, lng: state.bbox.ne.lng});
+    const xyScale = state.wMm / mapDist;
+    const zBaseSockel = 2.0; // Fixed physical base height in mm
+    const zMinTerrain = 0.5; // Offset from base for detail
+    const zMaxRelief = targetH; 
+    
+    const objs = []; 
+    let currentId = 1;
+
+    // 1. Terrain Solid
+    const res = 120, tm = { v:[], t:[] }, idxMap = new Map();
+    const isIn = (x,y) => { if(state.shape==='rect'||state.shape==='sq') return true; const dx=x-state.wMm/2, dy=y-state.wMm/2; return (dx*dx+dy*dy)<=(state.wMm/2)**2; };
+    for(let r=0; r<=res; r++) for(let c=0; c<=res; c++) {
+      const x=c/res*state.wMm, y=r/res*state.hMm; if(!isIn(x,y)) continue;
+      const zTop = getZInterpolated(c/res, r/res, zBaseSockel + zMinTerrain, zBaseSockel + zMaxRelief);
+      idxMap.set(`${r},${c}`, {t: tm.v.push([x,y,zTop])-1, b: tm.v.push([x,y,0]) - 1});
+    }
+    for(let r=0;r<res;r++) for(let c=0;c<res;c++) {
+      const tl=idxMap.get(`${r},${c}`), tr=idxMap.get(`${r},${c+1}`), bl=idxMap.get(`${r+1},${c}`), br=idxMap.get(`${r+1},${c+1}`);
+      if(tl&&tr&&bl&&br) {
+        tm.t.push([tl.t,bl.t,tr.t],[tr.t,bl.t,br.t]); 
+        tm.t.push([tl.b,tr.b,bl.b],[tr.b,br.b,bl.b]); 
+        if(!idxMap.get(`${r-1},${c}`)) tm.t.push([tl.t,tr.t,tl.b],[tl.b,tr.t,tr.b]); 
+        if(!idxMap.get(`${r+1},${c}`)) tm.t.push([bl.t,bl.b,br.t],[br.t,bl.b,br.b]);
+        if(!idxMap.get(`${r},${c-1}`)) tm.t.push([bl.t,tl.t,bl.b],[bl.b,tl.t,tl.b]);
+        if(!idxMap.get(`${r},${c+1}`)) tm.t.push([tr.t,br.t,tr.b],[tr.b,br.t,br.b]);
+      }
+    }
+    objs.push({id:currentId++, name:'Terrain', mesh:tm});
+
+    // 2. Extrusions
+    const extrudeSmart = (arr, name, extra) => {
+      const m = {v:[], t:[]}; let vo=0;
+      arr.forEach(item => {
+        const ring = item.pts; if(!ring || ring.length<3) return;
+        const flat = []; ring.forEach(p=>flat.push(p[0],p[1])); const ix = earcut(flat,null,2);
+        const len = ring.length;
+        ring.forEach(p => m.v.push([p[0],p[1],0])); 
+        ring.forEach(p => {
+          const zTerr = getZInterpolated(p[0]/state.wMm, p[1]/state.hMm, zBaseSockel + zMinTerrain, zBaseSockel + zMaxRelief);
+          const H = item.h ? (item.h * xyScale * 1.5) : extra; // 1.5x amplification for print visibility
+          m.v.push([p[0],p[1], zTerr + H]);
+        });
+        for(let i=0;i<ix.length;i+=3) m.t.push([vo+len+ix[i], vo+len+ix[i+1], vo+len+ix[i+2]]);
+        for(let i=0;i<len-1;i++){ const b1=vo+i, b2=vo+i+1, t1=vo+len+i, t2=vo+len+i+1; m.t.push([b1,b2,t1],[b2,t2,t1]); }
+        vo += len*2;
+      });
+      if(m.v.length) objs.push({id:currentId++, name, mesh:m});
+    };
+    
+    if(state.layers.buildings.on) extrudeSmart(state.geo.buildings, 'Buildings', 0);
+    if(state.layers.highways.on) extrudeSmart(state.geo.highways, 'Highways', 0.8);
+    if(state.layers.roads.on) extrudeSmart(state.geo.roads, 'Roads', 0.4);
+    if(state.layers.water.on) extrudeSmart(state.geo.water, 'Water', 0.1);
+
+    let resXml='', buildXml='';
+    objs.forEach(o => {
+      const vStrArr = o.mesh.v.map(v => `<vertex x="${v[0].toFixed(4)}" y="${v[1].toFixed(4)}" z="${v[2].toFixed(4)}" />`);
+      const tStrArr = o.mesh.t.map(t => `<triangle v1="${t[0]}" v2="${t[1]}" v3="${t[2]}" />`);
+      resXml += `<object id="${o.id}" name="${o.name}" type="model"><mesh><vertices>${vStrArr.join('')}</vertices><triangles>${tStrArr.join('')}</triangles></mesh></object>`;
+      buildXml += `<item objectid="${o.id}" />`;
+    });
+    const xml = `<?xml version="1.0" encoding="UTF-8"?><model unit="millimeter" xml:lang="en" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02"><resources>${resXml}</resources><build>${buildXml}</build></model>`;
+    zip.file("3D/3dmodel.model", xml);
+    zip.file("[Content_Types].xml", `<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/></Types>`);
+    zip.folder("_rels").file(".rels", `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rel1" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel" Target="3D/3dmodel.model"/></Relationships>`);
+    saveBlob(await zip.generateAsync({type:"blob"}), 'Vectorcity_Project_V32.3mf');
+    idle();
+  };
+
+  window.closeModal = () => $('modal').classList.remove('open');
+})();
+</script>
 </body>
 </html>
